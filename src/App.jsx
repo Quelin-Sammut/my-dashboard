@@ -669,29 +669,28 @@ async function updateTaskStatus(taskId, status) {
 
 function extractPhone(text) {
   if (!text) return "";
-  // Strip invisible unicode characters (common in copy-pasted numbers)
-  text = text.replace(/[\u200e\u200f\u202a\u202b\u202c\u202d\u202e]/g, "");
-  const words = text.replace(/\n/g, " ").split(" ").filter(w => w.length > 0);
+  // Remove ALL non-printable and invisible characters
+  let cleaned = "";
+  for (let ci = 0; ci < text.length; ci++) {
+    const code = text.charCodeAt(ci);
+    if (code > 31 && code < 127 || code === 32) cleaned += text[ci];
+  }
+  text = cleaned;
+  const words = text.split(" ").filter(function(w) { return w.length > 0; });
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
-    const wDigits = w.replace(/[^0-9]/g, "");
     const next = i + 1 < words.length ? words[i + 1] : "";
-    const nextDigits = next.replace(/[^0-9]/g, "");
-    // +356 followed by 8 digits (split or joined)
-    if (w.indexOf("356") !== -1 && w.replace(/[^0-9]/g,"").length >= 11) {
-      return w;
-    }
-    if ((w === "+356" || w === "356") && nextDigits.length === 8) {
-      return w + " " + next;
-    }
-    // Two consecutive 4-digit numbers = phone
-    if (wDigits.length === 4 && wDigits === w && nextDigits.length === 4 && nextDigits === next) {
-      return w + " " + next;
-    }
-    // Single 8-digit number
-    if (wDigits.length === 8 && wDigits === w) {
-      return w;
-    }
+    // Build digit-only versions
+    let wd = ""; for (let j=0;j<w.length;j++) { if(w[j]>="0"&&w[j]<="9") wd+=w[j]; }
+    let nd = ""; for (let j=0;j<next.length;j++) { if(next[j]>="0"&&next[j]<="9") nd+=next[j]; }
+    // +356 joined with 8 digits
+    if (wd.length === 11 && wd.startsWith("356")) { return "+356" + wd.slice(3); }
+    // +356 split: next word is 8 digits
+    if (wd === "356" && nd.length === 8) { return "+356 " + next; }
+    // Two 4-digit words in a row = phone number
+    if (wd.length === 4 && wd === w && nd.length === 4 && nd === next) { return w + " " + next; }
+    // Single 8-digit word
+    if (wd.length === 8 && wd === w) { return w; }
   }
   return "";
 }
