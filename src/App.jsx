@@ -620,17 +620,37 @@ async function cuFetch(endpoint, method="GET", body=null) {
 async function fetchListTasks(listId) {
   const data = await cuFetch(`/list/${listId}/task?statuses[]=to+do&statuses[]=in+progress&statuses[]=open&order_by=due_date&reverse=false`);
   if (!data || !data.tasks) return [];
-  return data.tasks.map(t => ({
-    id: t.id,
-    name: t.name,
-    priority: t.priority ? ["urgent","high","normal","low"][t.priority.priority - 1] || "normal" : "normal",
-    due: t.due_date ? toISO(new Date(parseInt(t.due_date))) : daysAhead(7),
-    done: t.status?.status === "complete",
-    list: t.list?.name || "",
-    // Follow-up specific fields from description
-    phone: extractPhone(t.description || t.name),
-    note: t.description || "",
-  }));
+  return data.tasks.map(t => {
+    // ClickUp priority object: { priority: 1=urgent, 2=high, 3=normal, 4=low }
+    const priMap = {"1":"urgent","2":"high","3":"normal","4":"low"};
+    const priority = t.priority ? (priMap[String(t.priority.priority)] || "normal") : null;
+
+    // Parse due date + time (ClickUp returns milliseconds timestamp)
+    let dueISO = daysAhead(7);
+    let dueTime = null;
+    if (t.due_date) {
+      const d = new Date(parseInt(t.due_date));
+      dueISO = toISO(d);
+      // Only show time if it's not midnight (00:00)
+      const hours = d.getHours();
+      const mins = d.getMinutes();
+      if (hours !== 0 || mins !== 0) {
+        dueTime = `${String(hours).padStart(2,"0")}:${String(mins).padStart(2,"0")}`;
+      }
+    }
+
+    return {
+      id: t.id,
+      name: t.name,
+      priority,
+      due: dueISO,
+      dueTime,
+      done: t.status?.status === "complete" || t.status?.type === "closed",
+      list: t.list?.name || "",
+      phone: extractPhone(t.description || t.name),
+      note: t.description || "",
+    };
+  });
 }
 
 async function updateTaskStatus(taskId, status) {
@@ -1117,10 +1137,11 @@ const css=`
 // ── Shared helpers ────────────────────────────────────────────────────────────
 function Bdg({type}){ if(!type)return null; return <span className={`bdg bdg-${type}`}>{type}</span>; }
 function getDueCls(iso){ if(iso<todayISO)return"overdue"; if(iso===todayISO)return"today"; return"future"; }
-function getDueLbl(iso){
-  if(iso<todayISO)return`Overdue ${fmtDate(new Date(iso+"T00:00:00"))}`;
-  if(iso===todayISO)return"Due today";
-  return fmtDate(new Date(iso+"T00:00:00"));
+function getDueLbl(iso, time=null){
+  const datePart = iso<todayISO ? `Overdue ${fmtDate(new Date(iso+"T00:00:00"))}` :
+                   iso===todayISO ? "Due today" :
+                   fmtDate(new Date(iso+"T00:00:00"));
+  return time ? `${datePart} · ${time}` : datePart;
 }
 function fmtLogDate(iso){
   if(iso===todayISO)return"Today";
@@ -1372,10 +1393,16 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle,onRefresh,refreshing}){
   const [appliedFrom,setAppliedFrom]=useState(null);
   const [appliedTo,setAppliedTo]=useState(null);
 
+  const priOrder={urgent:0,high:1,normal:2,low:3,null:3};
   const sortedFU=[...followUps].sort((a,b)=>{
-    const pri={urgent:0,high:1,normal:2,low:3};
-    if(a.due!==b.due)return a.due.localeCompare(b.due);
-    return(pri[a.priority]||2)-(pri[b.priority]||2);
+    // Sort by date first
+    if(a.due!==b.due) return a.due.localeCompare(b.due);
+    // Then by time (tasks with time come before those without)
+    if(a.dueTime&&!b.dueTime) return -1;
+    if(!a.dueTime&&b.dueTime) return 1;
+    if(a.dueTime&&b.dueTime&&a.dueTime!==b.dueTime) return a.dueTime.localeCompare(b.dueTime);
+    // Then by priority
+    return(priOrder[a.priority]??2)-(priOrder[b.priority]??2);
   });
   const filteredFU=sortedFU.filter(f=>{
     if(fuFilter==="all")return !f.done;
@@ -1394,7 +1421,14 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle,onRefresh,refreshing}){
     if(taskFilter==="custom"&&appliedFrom&&appliedTo)return t.due>=appliedFrom&&t.due<=appliedTo&&!t.done;
     if(taskFilter==="completed")return t.done;
     return true;
-  }).sort((a,b)=>a.due.localeCompare(b.due));
+  }).sort((a,b)=>{
+    if(a.due!==b.due) return a.due.localeCompare(b.due);
+    if(a.dueTime&&!b.dueTime) return -1;
+    if(!a.dueTime&&b.dueTime) return 1;
+    if(a.dueTime&&b.dueTime&&a.dueTime!==b.dueTime) return a.dueTime.localeCompare(b.dueTime);
+    const p={urgent:0,high:1,normal:2,low:3};
+    return(p[a.priority]??2)-(p[b.priority]??2);
+  });
 
   const grouped=filteredTasks.reduce((acc,t)=>{(acc[t.due]=acc[t.due]||[]).push(t);return acc;},{});
   const overdueCount=followUps.filter(f=>f.due<todayISO&&!f.done).length;
@@ -1451,7 +1485,7 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle,onRefresh,refreshing}){
                     </div>
                     {!f.done&&<div className="fu-note">{f.note}</div>}
                     <div className="fu-foot">
-                      {!f.done&&<span className={`fu-due ${getDueCls(f.due)}`}>{getDueLbl(f.due)}</span>}
+                      {!f.done&&<span className={`fu-due ${getDueCls(f.due)}`}>{getDueLbl(f.due,f.dueTime)}</span>}
                       <span style={{fontSize:9,color:T.text3,fontFamily:"JetBrains Mono,monospace"}}>{f.list}</span>
                     </div>
                   </div>
@@ -1496,7 +1530,7 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle,onRefresh,refreshing}){
                         <div className={`tchk ${t.done?"done":""}`}/>
                         <div style={{flex:1}}>
                           <div className={`tname ${t.done?"done":""}`}>{t.name}</div>
-                          <div className="tmeta"><Bdg type={t.priority}/><span style={{marginLeft:t.priority?4:0}}>{t.list}</span></div>
+                          <div className="tmeta"><Bdg type={t.priority}/><span style={{marginLeft:t.priority?4:0}}>{t.list}</span>{t.dueTime&&<span style={{marginLeft:6,color:T.amber,fontFamily:"JetBrains Mono,monospace"}}>⏰ {t.dueTime}</span>}</div>
                         </div>
                       </div>
                     ))}
@@ -2385,18 +2419,23 @@ export default function App(){
 
   // Live toggle — updates ClickUp when task marked done
   const toggleFULive = useCallback(async (id) => {
-    setFollowUps(p => p.map(f => f.id === id ? {...f, done: !f.done} : f));
     const fu = followUps.find(f => f.id === id);
-    if (fu && typeof id === "string") {
-      await updateTaskStatus(id, fu.done ? "open" : "complete");
+    if (!fu) return;
+    const newDone = !fu.done;
+    setFollowUps(p => p.map(f => f.id === id ? {...f, done: newDone} : f));
+    // newDone=true means mark complete, newDone=false means undo back to "to do"
+    if (typeof id === "string") {
+      await updateTaskStatus(id, newDone ? "complete" : "to do");
     }
   }, [followUps]);
 
   const toggleTaskLive = useCallback(async (id) => {
-    setTasks(p => p.map(t => t.id === id ? {...t, done: !t.done} : t));
     const task = tasks.find(t => t.id === id);
-    if (task && typeof id === "string") {
-      await updateTaskStatus(id, task.done ? "open" : "complete");
+    if (!task) return;
+    const newDone = !task.done;
+    setTasks(p => p.map(t => t.id === id ? {...t, done: newDone} : t));
+    if (typeof id === "string") {
+      await updateTaskStatus(id, newDone ? "complete" : "to do");
     }
   }, [tasks]);
 
