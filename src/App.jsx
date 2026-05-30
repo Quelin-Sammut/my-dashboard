@@ -618,7 +618,7 @@ async function cuFetch(endpoint, method="GET", body=null) {
 }
 
 async function fetchListTasks(listId) {
-  const data = await cuFetch(`/list/${listId}/task?statuses[]=open&statuses[]=in+progress&order_by=due_date&reverse=false`);
+  const data = await cuFetch(`/list/${listId}/task?statuses[]=to+do&statuses[]=in+progress&statuses[]=open&order_by=due_date&reverse=false`);
   if (!data || !data.tasks) return [];
   return data.tasks.map(t => ({
     id: t.id,
