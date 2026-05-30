@@ -669,10 +669,25 @@ async function updateTaskStatus(taskId, status) {
 
 function extractPhone(text) {
   if (!text) return "";
-  // Match +356 followed by digits/spaces, or local numbers like 7942 9239 or 99409756
-  const match = text.match(/([+]356[ ]?[0-9 ]{7,12}|[789][0-9]{3}[ ][0-9]{4}|[789][0-9]{7}|[0-9]{8})/u);
-  if (!match) return "";
-  return match[0].trim();
+  // Split text into words and look for phone number patterns
+  const words = text.split(" ");
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    // Match +356 XXXXXXXX (with optional next word)
+    if (w.startsWith("+356")) {
+      const digits = (w + (words[i+1] ? " "+words[i+1] : "")).replace(/[^0-9+]/g,"");
+      if (digits.length >= 11) return w + (words[i+1] && /^[0-9]+$/.test(words[i+1]) ? " "+words[i+1] : "");
+    }
+    // Match 4-digit + space + 4-digit pattern (e.g. 7942 9239)
+    if (/^[0-9]{4}$/.test(w) && words[i+1] && /^[0-9]{4}$/.test(words[i+1])) {
+      return w + " " + words[i+1];
+    }
+    // Match 8-digit number directly (e.g. 99409756)
+    if (/^[0-9]{8}$/.test(w)) {
+      return w;
+    }
+  }
+  return "";
 }
 
 function formatPhoneLink(phone) {
