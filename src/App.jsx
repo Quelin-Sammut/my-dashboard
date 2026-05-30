@@ -2328,6 +2328,57 @@ export default function App(){
   const [followUps,setFollowUps]=useState(FOLLOW_UPS_INIT);
   const [tasks,setTasks]=useState(TASKS_INIT);
   const [secs,setSecs]=useState(getSecsLeft());
+  const [cuLoading,setCuLoading]=useState(false);
+  const [cuError,setCuError]=useState(null);
+  const [cuLastSync,setCuLastSync]=useState(null);
+
+  // Fetch live ClickUp data
+  const syncClickUp = useCallback(async () => {
+    if (!CU_KEY) return;
+    setCuLoading(true); setCuError(null);
+    try {
+      const [fuTasks, rhTasks, propTasks] = await Promise.all([
+        fetchListTasks(CU_LISTS.followUps),
+        fetchListTasks(CU_LISTS.rhTodo),
+        fetchListTasks(CU_LISTS.properties),
+      ]);
+      if (fuTasks.length > 0) setFollowUps(mapCUTasksToFollowUps(fuTasks));
+      const allTasks = [
+        ...mapCUTasksToTasks(rhTasks, "Right Homess"),
+        ...mapCUTasksToTasks(propTasks, "Right Homess"),
+      ];
+      if (allTasks.length > 0) setTasks(allTasks);
+      setCuLastSync(new Date());
+    } catch(e) {
+      setCuError("Sync failed");
+    } finally {
+      setCuLoading(false);
+    }
+  }, []);
+
+  // Sync on mount and every 5 minutes
+  useEffect(() => {
+    syncClickUp();
+    const interval = setInterval(syncClickUp, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [syncClickUp]);
+
+  // Live toggle — updates ClickUp when task marked done
+  const toggleFULive = useCallback(async (id) => {
+    setFollowUps(p => p.map(f => f.id === id ? {...f, done: !f.done} : f));
+    const fu = followUps.find(f => f.id === id);
+    if (fu && typeof id === "string") {
+      await updateTaskStatus(id, fu.done ? "open" : "complete");
+    }
+  }, [followUps]);
+
+  const toggleTaskLive = useCallback(async (id) => {
+    setTasks(p => p.map(t => t.id === id ? {...t, done: !t.done} : t));
+    const task = tasks.find(t => t.id === id);
+    if (task && typeof id === "string") {
+      await updateTaskStatus(id, task.done ? "open" : "complete");
+    }
+  }, [tasks]);
 
   useEffect(()=>{const t=setInterval(()=>setSecs(getSecsLeft()),1000);return()=>clearInterval(t);},[]);
 
