@@ -1111,6 +1111,7 @@ const css=`
 
   @keyframes fi { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
   .fi { animation: fi 0.22s ease forwards; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 `;;
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -1362,7 +1363,7 @@ function TodayTab({followUps,tasks,onFUToggle,onTaskToggle,setTab}){
 }
 
 // ── RIGHT HOMESS TAB ─────────────────────────────────────────────────────────
-function RHTab({followUps,tasks,onFUToggle,onTaskToggle}){
+function RHTab({followUps,tasks,onFUToggle,onTaskToggle,onRefresh,refreshing}){
   const [sub,setSub]=useState("followups");
   const [fuFilter,setFuFilter]=useState("all");
   const [taskFilter,setTaskFilter]=useState("all");
@@ -1377,19 +1378,21 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle}){
     return(pri[a.priority]||2)-(pri[b.priority]||2);
   });
   const filteredFU=sortedFU.filter(f=>{
-    if(fuFilter==="all")return true;
+    if(fuFilter==="all")return !f.done;
     if(fuFilter==="overdue")return f.due<todayISO&&!f.done;
-    if(fuFilter==="today")return f.due===todayISO;
-    if(fuFilter==="upcoming")return f.due>todayISO;
+    if(fuFilter==="today")return f.due===todayISO&&!f.done;
+    if(fuFilter==="upcoming")return f.due>todayISO&&!f.done;
+    if(fuFilter==="completed")return f.done;
     return true;
   });
 
   const filteredTasks=tasks.filter(t=>{
-    if(taskFilter==="all")return true;
-    if(taskFilter==="today")return t.due===todayISO;
-    if(taskFilter==="tomorrow")return t.due===toISO(addDays(now,1));
-    if(taskFilter==="week")return t.due>=todayISO&&t.due<=toISO(addDays(now,7));
-    if(taskFilter==="custom"&&appliedFrom&&appliedTo)return t.due>=appliedFrom&&t.due<=appliedTo;
+    if(taskFilter==="all")return !t.done;
+    if(taskFilter==="today")return t.due===todayISO&&!t.done;
+    if(taskFilter==="tomorrow")return t.due===toISO(addDays(now,1))&&!t.done;
+    if(taskFilter==="week")return t.due>=todayISO&&t.due<=toISO(addDays(now,7))&&!t.done;
+    if(taskFilter==="custom"&&appliedFrom&&appliedTo)return t.due>=appliedFrom&&t.due<=appliedTo&&!t.done;
+    if(taskFilter==="completed")return t.done;
     return true;
   }).sort((a,b)=>a.due.localeCompare(b.due));
 
@@ -1398,17 +1401,28 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle}){
 
   return(
     <div className="fi">
-      <div className="snav">
-        <button className={`stab ${sub==="followups"?"active":""}`} onClick={()=>setSub("followups")}>
-          Follow-Ups {overdueCount>0&&<span style={{marginLeft:3,background:T.rose,color:"#fff",borderRadius:4,padding:"0 4px",fontSize:8}}>{overdueCount}</span>}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 20px 0"}}>
+        <div style={{display:"flex",gap:4}}>
+          <button className={`stab ${sub==="followups"?"active":""}`} onClick={()=>setSub("followups")}>
+            Follow-Ups {overdueCount>0&&<span style={{marginLeft:3,background:T.rose,color:"#fff",borderRadius:4,padding:"0 4px",fontSize:8}}>{overdueCount}</span>}
+          </button>
+          <button className={`stab ${sub==="tasks"?"active":""}`} onClick={()=>setSub("tasks")}>Tasks</button>
+        </div>
+        <button onClick={onRefresh} disabled={refreshing} style={{
+          padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border2}`,
+          background:"transparent",color:refreshing?T.amber:T.text3,
+          fontSize:11,fontFamily:"Inter,sans-serif",cursor:"pointer",
+          transition:"all 0.15s",display:"flex",alignItems:"center",gap:4,
+        }}>
+          <span style={{display:"inline-block",animation:refreshing?"spin 1s linear infinite":"none"}}>⟳</span>
+          {refreshing?"Syncing...":"Refresh"}
         </button>
-        <button className={`stab ${sub==="tasks"?"active":""}`} onClick={()=>setSub("tasks")}>Tasks</button>
       </div>
 
       {sub==="followups"&&(
         <>
           <div className="snav" style={{paddingTop:8}}>
-            {["all","overdue","today","upcoming"].map(f=>(
+            {["all","overdue","today","upcoming","completed"].map(f=>(
               <button key={f} className={`stab ${fuFilter===f?"active":""}`} onClick={()=>setFuFilter(f)} style={{fontSize:10}}>
                 {f.charAt(0).toUpperCase()+f.slice(1)}
               </button>
@@ -1417,18 +1431,27 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle}){
           <div className="sec">
             {filteredFU.length===0
               ?<div className="empty">All clear ✓</div>
+              :filteredFU.length===0
+              ?<div className="empty" style={{padding:"30px 0"}}>
+                {fuFilter==="all"?"🎉 All follow-ups cleared! Great work.":
+                 fuFilter==="overdue"?"✓ No overdue follow-ups":
+                 fuFilter==="today"?"✓ No follow-ups due today":
+                 fuFilter==="upcoming"?"No upcoming follow-ups":
+                 fuFilter==="completed"?"No completed follow-ups yet":"All clear"}
+               </div>
               :filteredFU.map(f=>(
                 <div key={f.id} className={`fu ${f.done?"done":""}`}>
                   <div className={`fuchk ${f.done?"done":""}`} onClick={()=>onFUToggle(f.id)}/>
                   <div className="fu-body">
                     <div className="fu-top">
-                      <span className="fu-name">{f.client}</span>
-                      <a className="fu-phone" href={`tel:${f.phone}`}>{f.phone}</a>
-                      {f.priority&&<Bdg type={f.priority}/>}
+                      <span className="fu-name" style={{textDecoration:f.done?"line-through":"none",opacity:f.done?0.5:1}}>{f.client}</span>
+                      {f.phone&&!f.done&&<a className="fu-phone" href={`tel:${f.phone.replace(/ /g,"")}`}>{f.phone}</a>}
+                      {f.priority&&!f.done&&<Bdg type={f.priority}/>}
+                      {f.done&&<span className="bdg" style={{background:"rgba(74,222,128,0.1)",color:T.green}}>DONE</span>}
                     </div>
-                    <div className="fu-note">{f.note}</div>
+                    {!f.done&&<div className="fu-note">{f.note}</div>}
                     <div className="fu-foot">
-                      <span className={`fu-due ${getDueCls(f.due)}`}>{getDueLbl(f.due)}</span>
+                      {!f.done&&<span className={`fu-due ${getDueCls(f.due)}`}>{getDueLbl(f.due)}</span>}
                       <span style={{fontSize:9,color:T.text3,fontFamily:"JetBrains Mono,monospace"}}>{f.list}</span>
                     </div>
                   </div>
@@ -1442,7 +1465,7 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle}){
       {sub==="tasks"&&(
         <>
           <div className="snav" style={{paddingTop:8}}>
-            {["all","today","tomorrow","week","custom"].map(f=>(
+            {["all","today","tomorrow","week","custom","completed"].map(f=>(
               <button key={f} className={`stab ${taskFilter===f?"active":""}`} onClick={()=>setTaskFilter(f)} style={{fontSize:10}}>
                 {f==="custom"?"Range":f.charAt(0).toUpperCase()+f.slice(1)}
               </button>
@@ -1459,7 +1482,9 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle}){
           <div style={{padding:"5px 18px 0",fontSize:9,color:T.text3,fontFamily:"JetBrains Mono,monospace"}}>{filteredTasks.length} tasks</div>
           <div className="sec">
             {Object.keys(grouped).length===0
-              ?<div className="empty">No tasks for this period ✓</div>
+              ?<div className="empty" style={{padding:"30px 0"}}>
+                {taskFilter==="completed"?"No completed tasks yet":"🎉 All tasks cleared! Great work."}
+               </div>
               :Object.entries(grouped).sort(([a],[b])=>a.localeCompare(b)).map(([date,grp])=>(
                 <div key={date}>
                   <div className="dgrp-label" style={{color:date<todayISO?T.rose:T.text3}}>
@@ -2459,8 +2484,9 @@ export default function App(){
               <div className={`hdr-alert ${totalOverdue===0?"ok":""}`}>
                 {totalOverdue>0?`⚠ ${totalOverdue} overdue`:"✓ All clear"}
               </div>
-              <div style={{fontSize:9,color:cuLoading?T.amber:cuError?T.rose:T.green,fontFamily:"JetBrains Mono,monospace",marginTop:2}}>
-                {cuLoading?"⟳ Syncing...":cuError?"⚠ Sync error":cuLastSync?`↑ ${cuLastSync.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`:"○ Demo data"}
+              <div style={{fontSize:9,color:cuLoading?T.amber:cuError?T.rose:T.green,fontFamily:"JetBrains Mono,monospace",marginTop:2,cursor:cuError?"pointer":"default"}}
+                onClick={cuError?syncClickUp:undefined}>
+                {cuLoading?"⟳ Syncing...":cuError?"⚠ Tap to retry":cuLastSync?`↑ ${cuLastSync.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`:"○ Demo data"}
               </div>
             </div>
           </div>
@@ -2468,7 +2494,7 @@ export default function App(){
 
         {/* Tab content */}
         {tab==="today"&&<TodayTab followUps={followUps} tasks={tasks} onFUToggle={toggleFULive} onTaskToggle={toggleTaskLive} setTab={setTab}/>}
-        {tab==="rh"   &&<RHTab followUps={followUps} tasks={tasks} onFUToggle={toggleFULive} onTaskToggle={toggleTaskLive}/>}
+        {tab==="rh"   &&<RHTab followUps={followUps} tasks={tasks} onFUToggle={toggleFULive} onTaskToggle={toggleTaskLive} onRefresh={syncClickUp} refreshing={cuLoading}/>}
         {tab==="cal"  &&<CalendarTab/>}
         {tab==="goat" &&<GoatTab/>}
         {tab==="me"   &&<MeTab/>}
