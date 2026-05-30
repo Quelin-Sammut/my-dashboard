@@ -617,13 +617,15 @@ async function cuFetch(endpoint, method="GET", body=null) {
   }
 }
 
-async function fetchListTasks(listId) {
-  const data = await cuFetch(`/list/${listId}/task?statuses[]=to+do&statuses[]=in+progress&statuses[]=open&order_by=due_date&reverse=false`);
+async function fetchListTasks(listId, completed=false) {
+  const statusFilter = completed
+    ? "statuses[]=complete&include_closed=true"
+    : "statuses[]=to+do&statuses[]=in+progress&statuses[]=open";
+  const data = await cuFetch(`/list/${listId}/task?${statusFilter}&order_by=due_date&reverse=false`);
   if (!data || !data.tasks) return [];
   return data.tasks.map(t => {
-    // ClickUp priority object: { priority: 1=urgent, 2=high, 3=normal, 4=low }
-    const priMap = {"1":"urgent","2":"high","3":"normal","4":"low"};
-    const priority = t.priority ? (priMap[String(t.priority.priority)] || "normal") : null;
+    // ClickUp priority object: { priority: "urgent"|"high"|"normal"|"low" }
+    const priority = t.priority ? t.priority.priority : null;
 
     // Parse due date + time (ClickUp returns milliseconds timestamp)
     let dueISO = daysAhead(7);
@@ -645,7 +647,7 @@ async function fetchListTasks(listId) {
       priority,
       due: dueISO,
       dueTime,
-      done: t.status?.status === "complete" || t.status?.type === "closed",
+      done: t.status?.status === "complete" || t.status?.status === "closed" || t.status?.type === "closed",
       list: t.list?.name || "",
       phone: extractPhone(t.description || t.name),
       note: t.description || "",
@@ -655,9 +657,14 @@ async function fetchListTasks(listId) {
 
 async function updateTaskStatus(taskId, status) {
   try {
+    console.log(`Updating task ${taskId} to status: ${status}`);
     const data = await cuFetch(`/task/${taskId}`, "PUT", { status });
+    console.log(`ClickUp update response:`, data);
     return data !== null;
-  } catch(e) { return false; }
+  } catch(e) {
+    console.error("updateTaskStatus error:", e);
+    return false;
+  }
 }
 
 function extractPhone(text) {
@@ -2391,12 +2398,14 @@ export default function App(){
   const syncClickUp = useCallback(async () => {
     setCuLoading(true); setCuError(null);
     try {
-      const [fuTasks, rhTasks, propTasks] = await Promise.all([
-        fetchListTasks(CU_LISTS.followUps),
-        fetchListTasks(CU_LISTS.rhTodo),
-        fetchListTasks(CU_LISTS.properties),
+      const [fuTasks, fuDone, rhTasks, propTasks] = await Promise.all([
+        fetchListTasks(CU_LISTS.followUps, false),
+        fetchListTasks(CU_LISTS.followUps, true),
+        fetchListTasks(CU_LISTS.rhTodo, false),
+        fetchListTasks(CU_LISTS.properties, false),
       ]);
-      if (fuTasks.length > 0) setFollowUps(mapCUTasksToFollowUps(fuTasks));
+      const allFU = [...fuTasks, ...fuDone];
+      if (allFU.length > 0) setFollowUps(mapCUTasksToFollowUps(allFU));
       const allTasks = [
         ...mapCUTasksToTasks(rhTasks, "Right Homess"),
         ...mapCUTasksToTasks(propTasks, "Right Homess"),

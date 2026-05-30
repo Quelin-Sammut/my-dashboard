@@ -1,3 +1,5 @@
+export const config = { api: { bodyParser: true } };
+
 export default async function handler(req, res) {
   // Allow CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
