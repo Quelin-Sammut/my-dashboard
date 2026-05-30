@@ -669,21 +669,27 @@ async function updateTaskStatus(taskId, status) {
 
 function extractPhone(text) {
   if (!text) return "";
-  // Split text into words and look for phone number patterns
-  const words = text.split(" ");
+  // Strip invisible unicode characters (common in copy-pasted numbers)
+  text = text.replace(/[\u200e\u200f\u202a\u202b\u202c\u202d\u202e]/g, "");
+  const words = text.replace(/\n/g, " ").split(" ").filter(w => w.length > 0);
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
-    // Match +356 XXXXXXXX (with optional next word)
-    if (w.startsWith("+356")) {
-      const digits = (w + (words[i+1] ? " "+words[i+1] : "")).replace(/[^0-9+]/g,"");
-      if (digits.length >= 11) return w + (words[i+1] && /^[0-9]+$/.test(words[i+1]) ? " "+words[i+1] : "");
+    const wDigits = w.replace(/[^0-9]/g, "");
+    const next = i + 1 < words.length ? words[i + 1] : "";
+    const nextDigits = next.replace(/[^0-9]/g, "");
+    // +356 followed by 8 digits (split or joined)
+    if (w.indexOf("356") !== -1 && w.replace(/[^0-9]/g,"").length >= 11) {
+      return w;
     }
-    // Match 4-digit + space + 4-digit pattern (e.g. 7942 9239)
-    if (/^[0-9]{4}$/.test(w) && words[i+1] && /^[0-9]{4}$/.test(words[i+1])) {
-      return w + " " + words[i+1];
+    if ((w === "+356" || w === "356") && nextDigits.length === 8) {
+      return w + " " + next;
     }
-    // Match 8-digit number directly (e.g. 99409756)
-    if (/^[0-9]{8}$/.test(w)) {
+    // Two consecutive 4-digit numbers = phone
+    if (wDigits.length === 4 && wDigits === w && nextDigits.length === 4 && nextDigits === next) {
+      return w + " " + next;
+    }
+    // Single 8-digit number
+    if (wDigits.length === 8 && wDigits === w) {
       return w;
     }
   }
