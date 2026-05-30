@@ -669,8 +669,21 @@ async function updateTaskStatus(taskId, status) {
 
 function extractPhone(text) {
   if (!text) return "";
-  const match = text.match(/[+]?[0-9]{7,15}/);
-  return match ? match[0] : "";
+  // Match +356 XXXXXXXX or local 7/8/9XXXXXXX formats
+  const match = text.match(/([+]356[\s\d]{7,12}|[789]\d{3}[\s]?\d{4}|\d{7,15})/);
+  if (!match) return "";
+  // Clean up spaces for tel: link
+  return match[0].trim();
+}
+
+function formatPhoneLink(phone) {
+  if (!phone) return "";
+  let clean = phone.replace(/ /g, "");
+  // Add +356 if it's a local Maltese number without country code
+  if (clean.match(/^[789]\d{7}$/) && !clean.startsWith("+")) {
+    clean = "+356" + clean;
+  }
+  return clean;
 }
 
 function mapCUTasksToFollowUps(tasks) {
@@ -1270,7 +1283,23 @@ function TodayTab({followUps,tasks,onFUToggle,onTaskToggle,setTab}){
               <div className="fu-body">
                 <div className="fu-top">
                   <span className="fu-name">{item.client||item.name}</span>
-                  {item.phone&&<a className="fu-phone" href={`tel:${item.phone}`} onClick={e=>e.stopPropagation()}>{item.phone}</a>}
+                  {item.phone&&(
+                    <a
+                      className="fu-phone"
+                      href={`tel:${formatPhoneLink(item.phone)}`}
+                      onClick={e=>e.stopPropagation()}
+                      style={{
+                        display:"inline-flex",alignItems:"center",gap:4,
+                        padding:"3px 8px",borderRadius:6,
+                        background:"rgba(245,158,11,0.1)",
+                        border:`1px solid ${T.amberDim}`,
+                        color:T.amber,fontFamily:"JetBrains Mono,monospace",
+                        fontSize:11,textDecoration:"none",fontWeight:600,
+                      }}
+                    >
+                      📞 {item.phone}
+                    </a>
+                  )}
                   {item.priority&&<Bdg type={item.priority}/>}
                   <span className="bdg bdg-slack" style={{fontSize:8}}>{item.kind==="fu"?"Follow-up":"Task"}</span>
                 </div>
@@ -1486,7 +1515,24 @@ function RHTab({followUps,tasks,onFUToggle,onTaskToggle,onRefresh,refreshing}){
                   <div className="fu-body">
                     <div className="fu-top">
                       <span className="fu-name" style={{textDecoration:f.done?"line-through":"none",opacity:f.done?0.5:1}}>{f.client}</span>
-                      {f.phone&&!f.done&&<a className="fu-phone" href={`tel:${f.phone.replace(/ /g,"")}`}>{f.phone}</a>}
+                      {f.phone&&!f.done&&(
+                        <a
+                          className="fu-phone"
+                          href={`tel:${formatPhoneLink(f.phone)}`}
+                          onClick={e=>e.stopPropagation()}
+                          style={{
+                            display:"inline-flex",alignItems:"center",gap:4,
+                            padding:"3px 8px",borderRadius:6,
+                            background:"rgba(245,158,11,0.1)",
+                            border:`1px solid ${T.amberDim}`,
+                            color:T.amber,fontFamily:"JetBrains Mono,monospace",
+                            fontSize:11,textDecoration:"none",fontWeight:600,
+                            transition:"all 0.15s",
+                          }}
+                        >
+                          📞 {f.phone}
+                        </a>
+                      )}
                       {f.priority&&!f.done&&<Bdg type={f.priority}/>}
                       {f.done&&<span className="bdg" style={{background:"rgba(74,222,128,0.1)",color:T.green}}>DONE</span>}
                     </div>
