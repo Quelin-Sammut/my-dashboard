@@ -602,12 +602,13 @@ const CU_LISTS = {
   goatImprove:  "901523209908",
 };
 
-async function cuFetch(endpoint) {
-  if (!CU_KEY) return null;
+async function cuFetch(endpoint, method="GET", body=null) {
   try {
-    const res = await fetch(`https://api.clickup.com/api/v2${endpoint}`, {
-      headers: { Authorization: CU_KEY, "Content-Type": "application/json" },
-    });
+    // Use Vercel proxy to avoid CORS issues
+    const proxyUrl = `/api/clickup?endpoint=${encodeURIComponent(endpoint)}`;
+    const options = { method, headers: { "Content-Type": "application/json" } };
+    if (body) options.body = JSON.stringify(body);
+    const res = await fetch(proxyUrl, options);
     if (!res.ok) return null;
     return await res.json();
   } catch(e) {
@@ -633,14 +634,9 @@ async function fetchListTasks(listId) {
 }
 
 async function updateTaskStatus(taskId, status) {
-  if (!CU_KEY) return false;
   try {
-    const res = await fetch(`https://api.clickup.com/api/v2/task/${taskId}`, {
-      method: "PUT",
-      headers: { Authorization: CU_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    return res.ok;
+    const data = await cuFetch(`/task/${taskId}`, "PUT", { status });
+    return data !== null;
   } catch(e) { return false; }
 }
 
@@ -2334,7 +2330,6 @@ export default function App(){
 
   // Fetch live ClickUp data
   const syncClickUp = useCallback(async () => {
-    if (!CU_KEY) return;
     setCuLoading(true); setCuError(null);
     try {
       const [fuTasks, rhTasks, propTasks] = await Promise.all([
