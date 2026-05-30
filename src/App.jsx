@@ -587,6 +587,94 @@ const WEATHER_DEMO = {
   tomorrow: { icon:"⛅", temp:26, feels:27, desc:"Partly cloudy", wind:18, humidity:62 },
 };
 
+
+// ── ClickUp API ───────────────────────────────────────────────────────────────
+const CU_KEY = (() => { try { return import.meta.env.VITE_CLICKUP_API_KEY || null; } catch(e) { return null; } })();
+const CU_WORK_WS = "90151934478"; // Work workspace
+const CU_PERS_WS = "90121729716"; // Personal workspace
+
+// List IDs
+const CU_LISTS = {
+  followUps:    "901523185465",
+  rhTodo:       "901523318470",
+  properties:   "901523191474",
+  goatTodo:     "901523318510",
+  goatImprove:  "901523209908",
+};
+
+async function cuFetch(endpoint) {
+  if (!CU_KEY) return null;
+  try {
+    const res = await fetch(`https://api.clickup.com/api/v2${endpoint}`, {
+      headers: { Authorization: CU_KEY, "Content-Type": "application/json" },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch(e) {
+    console.error("ClickUp fetch error:", e);
+    return null;
+  }
+}
+
+async function fetchListTasks(listId) {
+  const data = await cuFetch(`/list/${listId}/task?statuses[]=open&statuses[]=in+progress&order_by=due_date&reverse=false`);
+  if (!data || !data.tasks) return [];
+  return data.tasks.map(t => ({
+    id: t.id,
+    name: t.name,
+    priority: t.priority ? ["urgent","high","normal","low"][t.priority.priority - 1] || "normal" : "normal",
+    due: t.due_date ? toISO(new Date(parseInt(t.due_date))) : daysAhead(7),
+    done: t.status?.status === "complete",
+    list: t.list?.name || "",
+    // Follow-up specific fields from description
+    phone: extractPhone(t.description || t.name),
+    note: t.description || "",
+  }));
+}
+
+async function updateTaskStatus(taskId, status) {
+  if (!CU_KEY) return false;
+  try {
+    const res = await fetch(`https://api.clickup.com/api/v2/task/${taskId}`, {
+      method: "PUT",
+      headers: { Authorization: CU_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    return res.ok;
+  } catch(e) { return false; }
+}
+
+function extractPhone(text) {
+  if (!text) return "";
+  const match = text.match(/[+]?[0-9]{7,15}/);
+  return match ? match[0] : "";
+}
+
+function mapCUTasksToFollowUps(tasks) {
+  return tasks.map(t => ({
+    id: t.id,
+    client: t.name,
+    phone: t.phone,
+    note: t.note,
+    priority: t.priority,
+    due: t.due,
+    done: t.done,
+    list: "Follow-ups",
+  }));
+}
+
+function mapCUTasksToTasks(tasks, space) {
+  return tasks.map(t => ({
+    id: t.id,
+    name: t.name,
+    priority: t.priority,
+    due: t.due,
+    done: t.done,
+    list: t.list,
+    space,
+  }));
+}
+
 const TRAINING_LOG_INIT=[
   {id:1,date:daysAgo(6),type:"Easy Run",distance:"6.5km",duration:"38 min",feel:4,notes:"Felt good, consistent pace throughout."},
   {id:2,date:daysAgo(5),type:"Hill Repeats",distance:"8km",duration:"52 min",feel:3,notes:"Hills were tough but pushed through."},
@@ -2254,8 +2342,7 @@ export default function App(){
   const overdueTasks=tasks.filter(t=>t.due<todayISO&&!t.done).length;
   const totalOverdue=overdueFU+overdueTasks;
 
-  const toggleFU=useCallback((id)=>setFollowUps(p=>p.map(f=>f.id===id?{...f,done:!f.done}:f)),[]);
-  const toggleTask=useCallback((id)=>setTasks(p=>p.map(t=>t.id===id?{...t,done:!t.done}:t)),[]);
+
 
   const NAV=[
     {id:"today",icon:"☀️",l:"Today"},
@@ -2326,13 +2413,16 @@ export default function App(){
               <div className={`hdr-alert ${totalOverdue===0?"ok":""}`}>
                 {totalOverdue>0?`⚠ ${totalOverdue} overdue`:"✓ All clear"}
               </div>
+              <div style={{fontSize:9,color:cuLoading?T.amber:cuError?T.rose:T.green,fontFamily:"JetBrains Mono,monospace",marginTop:2}}>
+                {cuLoading?"⟳ Syncing...":cuError?"⚠ Sync error":cuLastSync?`↑ ${cuLastSync.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`:"○ Demo data"}
+              </div>
             </div>
           </div>
         </div>
 
         {/* Tab content */}
-        {tab==="today"&&<TodayTab followUps={followUps} tasks={tasks} onFUToggle={toggleFU} onTaskToggle={toggleTask} setTab={setTab}/>}
-        {tab==="rh"   &&<RHTab followUps={followUps} tasks={tasks} onFUToggle={toggleFU} onTaskToggle={toggleTask}/>}
+        {tab==="today"&&<TodayTab followUps={followUps} tasks={tasks} onFUToggle={toggleFULive} onTaskToggle={toggleTaskLive} setTab={setTab}/>}
+        {tab==="rh"   &&<RHTab followUps={followUps} tasks={tasks} onFUToggle={toggleFULive} onTaskToggle={toggleTaskLive}/>}
         {tab==="cal"  &&<CalendarTab/>}
         {tab==="goat" &&<GoatTab/>}
         {tab==="me"   &&<MeTab/>}
