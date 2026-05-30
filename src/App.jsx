@@ -1,4 +1,311 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useContext } from "react";
+
+// ── Auth Configuration ────────────────────────────────────────────────────────
+const AUTH_KEY = "dashboard_auth_user";
+const USERS_KEY = "dashboard_users";
+const ADMIN_USER = "quelin"; // Only this user can access the admin panel
+
+// Default users — only used on first load if no users exist in storage
+const DEFAULT_USERS = [
+  { username: "quelin", password: "dashboard2026", isAdmin: true, createdAt: "2026-05-30" },
+];
+
+function getUsers() {
+  try {
+    const stored = localStorage.getItem(USERS_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch(e) {}
+  localStorage.setItem(USERS_KEY, JSON.stringify(DEFAULT_USERS));
+  return DEFAULT_USERS;
+}
+
+function saveUsers(users) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function validateLogin(username, password) {
+  const users = getUsers();
+  return users.find(u => u.username.toLowerCase() === username.toLowerCase().trim() && u.password === password);
+}
+
+// ── Admin Panel Component ─────────────────────────────────────────────────────
+function AdminPanel({ onClose }) {
+  const [users, setUsers] = useState(getUsers());
+  const [newUser, setNewUser] = useState({ username: "", password: "" });
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editPass, setEditPass] = useState("");
+  const [showPassFor, setShowPassFor] = useState({});
+
+  const refresh = () => setUsers(getUsers());
+
+  const addUser = () => {
+    setError(""); setSuccess("");
+    if (!newUser.username.trim()) { setError("Username is required."); return; }
+    if (!newUser.password.trim()) { setError("Password is required."); return; }
+    if (newUser.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    const existing = getUsers();
+    if (existing.find(u => u.username.toLowerCase() === newUser.username.toLowerCase())) {
+      setError("Username already exists."); return;
+    }
+    const updated = [...existing, {
+      username: newUser.username.trim(),
+      password: newUser.password,
+      isAdmin: false,
+      createdAt: new Date().toISOString().split("T")[0],
+    }];
+    saveUsers(updated);
+    setUsers(updated);
+    setNewUser({ username: "", password: "" });
+    setSuccess("User added successfully.");
+    setTimeout(() => setSuccess(""), 3000);
+  };
+
+  const removeUser = (username) => {
+    if (username === ADMIN_USER) { setError("Cannot remove the admin user."); return; }
+    if (!window.confirm(`Remove user "${username}"?`)) return;
+    const updated = getUsers().filter(u => u.username !== username);
+    saveUsers(updated);
+    setUsers(updated);
+    setSuccess("User removed.");
+    setTimeout(() => setSuccess(""), 3000);
+  };
+
+  const savePassword = (username) => {
+    if (editPass.length < 6) { setError("Password must be at least 6 characters."); return; }
+    const updated = getUsers().map(u => u.username === username ? { ...u, password: editPass } : u);
+    saveUsers(updated);
+    setUsers(updated);
+    setEditingId(null);
+    setEditPass("");
+    setSuccess("Password updated.");
+    setTimeout(() => setSuccess(""), 3000);
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 9999, padding: 20, fontFamily: "'Inter', sans-serif",
+    }}>
+      <style>{`
+        .adm { background: #111820; border: 1px solid #1e2d3d; border-radius: 16px; padding: 28px; width: 100%; max-width: 440px; max-height: 85vh; overflow-y: auto; }
+        .adm-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .adm-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800; color: #e2e8f0; }
+        .adm-title span { color: #f59e0b; }
+        .adm-close { background: none; border: none; color: #475569; font-size: 20px; cursor: pointer; padding: 4px; transition: color 0.15s; }
+        .adm-close:hover { color: #e2e8f0; }
+        .adm-sec { margin-bottom: 24px; }
+        .adm-sec-title { font-size: 10px; color: #475569; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px; }
+        .adm-user-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #172130; border: 1px solid #1e2d3d; border-radius: 8px; margin-bottom: 6px; }
+        .adm-user-info { flex: 1; min-width: 0; }
+        .adm-user-name { font-size: 13px; font-weight: 600; color: #e2e8f0; }
+        .adm-user-meta { font-size: 10px; color: #475569; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+        .adm-badge { font-size: 8px; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; }
+        .adm-badge-admin { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .adm-badge-user  { background: rgba(103,232,249,0.1); color: #67e8f9; }
+        .adm-action-btn { padding: 5px 10px; border-radius: 6px; border: 1px solid #1e2d3d; background: transparent; font-size: 10px; font-family: 'Inter', sans-serif; font-weight: 600; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+        .adm-edit-btn { color: #94a3b8; } .adm-edit-btn:hover { border-color: #f59e0b; color: #f59e0b; }
+        .adm-del-btn  { color: #94a3b8; } .adm-del-btn:hover  { border-color: #fb7185; color: #fb7185; }
+        .adm-edit-row { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+        .adm-input { background: #0d1117; border: 1px solid #1e2d3d; border-radius: 7px; padding: 9px 11px; color: #e2e8f0; font-family: 'Inter', sans-serif; font-size: 13px; outline: none; width: 100%; box-sizing: border-box; }
+        .adm-input:focus { border-color: #92400e; }
+        .adm-input::placeholder { color: #475569; }
+        .adm-add-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+        .adm-save-btn { padding: 9px 16px; background: #f59e0b; border: none; border-radius: 7px; color: #000; font-weight: 700; font-size: 12px; cursor: pointer; font-family: 'Inter', sans-serif; white-space: nowrap; }
+        .adm-cancel-btn { padding: 9px 14px; background: transparent; border: 1px solid #1e2d3d; border-radius: 7px; color: #94a3b8; font-size: 12px; cursor: pointer; font-family: 'Inter', sans-serif; }
+        .adm-error { font-size: 11px; color: #fb7185; font-family: 'JetBrains Mono', monospace; margin-bottom: 10px; }
+        .adm-success { font-size: 11px; color: #4ade80; font-family: 'JetBrains Mono', monospace; margin-bottom: 10px; }
+        .adm-divider { height: 1px; background: #1e2d3d; margin: 20px 0; }
+      `}</style>
+
+      <div className="adm">
+        <div className="adm-hdr">
+          <div className="adm-title">User <span>Management</span></div>
+          <button className="adm-close" onClick={onClose}>✕</button>
+        </div>
+
+        {error   && <div className="adm-error">⚠ {error}</div>}
+        {success && <div className="adm-success">✓ {success}</div>}
+
+        {/* Current users */}
+        <div className="adm-sec">
+          <div className="adm-sec-title">Current Users ({users.length})</div>
+          {users.map(u => (
+            <div key={u.username}>
+              <div className="adm-user-row">
+                <div className="adm-user-info">
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div className="adm-user-name">{u.username}</div>
+                    <span className={`adm-badge ${u.isAdmin ? "adm-badge-admin" : "adm-badge-user"}`}>
+                      {u.isAdmin ? "Admin" : "User"}
+                    </span>
+                  </div>
+                  <div className="adm-user-meta">Added {u.createdAt}</div>
+                </div>
+                <button className="adm-action-btn adm-edit-btn" onClick={() => { setEditingId(u.username); setEditPass(""); setError(""); }}>
+                  Change password
+                </button>
+                {!u.isAdmin && (
+                  <button className="adm-action-btn adm-del-btn" onClick={() => removeUser(u.username)}>
+                    Remove
+                  </button>
+                )}
+              </div>
+              {editingId === u.username && (
+                <div className="adm-edit-row" style={{marginBottom:8}}>
+                  <input className="adm-input" type="password" placeholder="New password (min 6 chars)"
+                    value={editPass} onChange={e => setEditPass(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && savePassword(u.username)} />
+                  <button className="adm-save-btn" onClick={() => savePassword(u.username)}>Save</button>
+                  <button className="adm-cancel-btn" onClick={() => setEditingId(null)}>Cancel</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="adm-divider" />
+
+        {/* Add new user */}
+        <div className="adm-sec">
+          <div className="adm-sec-title">Add New User</div>
+          <div className="adm-add-row">
+            <input className="adm-input" placeholder="Username" value={newUser.username}
+              onChange={e => setNewUser(p => ({...p, username: e.target.value}))} />
+            <input className="adm-input" type="password" placeholder="Password (min 6 chars)"
+              value={newUser.password}
+              onChange={e => setNewUser(p => ({...p, password: e.target.value}))}
+              onKeyDown={e => e.key === "Enter" && addUser()} />
+          </div>
+          <button className="adm-save-btn" style={{width:"100%"}} onClick={addUser}>
+            + Add User
+          </button>
+        </div>
+
+        <div className="adm-divider" />
+        <div style={{fontSize:10,color:"#1e2d3d",fontFamily:"JetBrains Mono,monospace",textAlign:"center"}}>
+          Admin access — quelin only
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Current user context ──────────────────────────────────────────────────────
+const CurrentUserContext = React.createContext("");
+
+// ── Auth Gate Component ───────────────────────────────────────────────────────
+
+function AuthGate({ children }) {
+  const [authed, setAuthed] = useState(() => {
+    return sessionStorage.getItem(AUTH_KEY) !== null;
+  });
+  const [currentUser, setCurrentUser] = useState(() => sessionStorage.getItem(AUTH_KEY) || "");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const login = () => {
+    const user = validateLogin(username, password);
+    if (user) {
+      sessionStorage.setItem(AUTH_KEY, user.username.toLowerCase());
+      setCurrentUser(user.username.toLowerCase());
+      setAuthed(true);
+      setError("");
+    } else {
+      setError("Incorrect username or password.");
+      setPassword("");
+    }
+  };
+
+  const handleKey = (e) => {
+    if (e.key === "Enter") login();
+  };
+
+  if (authed) return <CurrentUserContext.Provider value={currentUser}>{children}</CurrentUserContext.Provider>;
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: "#080b0f",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: "'Inter', sans-serif", padding: 20,
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+        .auth-card {
+          background: #111820; border: 1px solid #1e2d3d; border-radius: 16px;
+          padding: 40px 36px; width: 100%; max-width: 380px;
+          box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+        }
+        .auth-logo { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800; color: #e2e8f0; margin-bottom: 4px; }
+        .auth-logo span { color: #f59e0b; }
+        .auth-sub { font-size: 11px; color: #475569; font-family: 'JetBrains Mono', monospace; margin-bottom: 32px; letter-spacing: 1px; text-transform: uppercase; }
+        .auth-label { font-size: 10px; color: #475569; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px; font-weight: 600; }
+        .auth-input {
+          width: 100%; background: #0d1117; border: 1px solid #1e2d3d; border-radius: 8px;
+          padding: 11px 14px; color: #e2e8f0; font-family: 'Inter', sans-serif;
+          font-size: 14px; outline: none; margin-bottom: 16px; transition: border-color 0.15s;
+          box-sizing: border-box;
+        }
+        .auth-input:focus { border-color: #92400e; }
+        .auth-input::placeholder { color: #475569; }
+        .auth-pass-wrap { position: relative; margin-bottom: 24px; }
+        .auth-pass-wrap .auth-input { margin-bottom: 0; padding-right: 44px; }
+        .auth-show { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #475569; cursor: pointer; font-size: 14px; padding: 4px; }
+        .auth-show:hover { color: #94a3b8; }
+        .auth-btn {
+          width: 100%; padding: 13px; background: #f59e0b; border: none; border-radius: 8px;
+          color: #000; font-weight: 700; font-size: 14px; cursor: pointer;
+          font-family: 'Inter', sans-serif; transition: all 0.15s; letter-spacing: 0.3px;
+        }
+        .auth-btn:hover { background: #fbbf24; }
+        .auth-error { font-size: 12px; color: #fb7185; font-family: 'JetBrains Mono', monospace; margin-bottom: 16px; text-align: center; }
+        .auth-footer { font-size: 10px; color: #1e2d3d; text-align: center; margin-top: 24px; font-family: 'JetBrains Mono', monospace; }
+      `}</style>
+      <div className="auth-card">
+        <div className="auth-logo">Good morning, <span>Quelin</span></div>
+        <div className="auth-sub">Personal Dashboard · Sign in to continue</div>
+
+        <div className="auth-label">Username</div>
+        <input
+          className="auth-input"
+          placeholder="Enter username"
+          value={username}
+          onChange={e => setUsername(e.target.value)}
+          onKeyDown={handleKey}
+          autoComplete="username"
+        />
+
+        <div className="auth-label">Password</div>
+        <div className="auth-pass-wrap">
+          <input
+            className="auth-input"
+            type={showPass ? "text" : "password"}
+            placeholder="Enter password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={handleKey}
+            autoComplete="current-password"
+          />
+          <button className="auth-show" onClick={() => setShowPass(p => !p)}>
+            {showPass ? "🙈" : "👁"}
+          </button>
+        </div>
+
+        {error && <div className="auth-error">{error}</div>}
+
+        <button className="auth-btn" onClick={login}>Sign In</button>
+
+        <div className="auth-footer">© {now.getFullYear()} · Personal use only</div>
+      </div>
+    </div>
+  );
+}
+
+
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
@@ -1621,7 +1928,7 @@ function Pomodoro(){
         </div>
       )}
     </>
-  );
+   );
 }
 
 
@@ -1751,8 +2058,184 @@ function VoiceBriefing({ followUps, tasks, slackUnread, hoursLogged }) {
   );
 }
 
+
+// ── USERS TAB ────────────────────────────────────────────────────────────────
+function UsersTab() {
+  const [users, setUsers] = useState(getUsers());
+  const [newUser, setNewUser] = useState({ username: "", password: "" });
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editPass, setEditPass] = useState("");
+  const [showNewPass, setShowNewPass] = useState(false);
+
+  const refresh = () => setUsers(getUsers());
+
+  const addUser = () => {
+    setError(""); setSuccess("");
+    if (!newUser.username.trim()) { setError("Username is required."); return; }
+    if (!newUser.password.trim()) { setError("Password is required."); return; }
+    if (newUser.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    const existing = getUsers();
+    if (existing.find(u => u.username.toLowerCase() === newUser.username.toLowerCase().trim())) {
+      setError("Username already exists."); return;
+    }
+    const updated = [...existing, {
+      username: newUser.username.trim(),
+      password: newUser.password,
+      isAdmin: false,
+      createdAt: new Date().toISOString().split("T")[0],
+    }];
+    saveUsers(updated);
+    setUsers(updated);
+    setNewUser({ username: "", password: "" });
+    setSuccess("User added successfully.");
+    setTimeout(() => setSuccess(""), 3000);
+  };
+
+  const removeUser = (username) => {
+    if (username === ADMIN_USER) { setError("Cannot remove the admin user."); return; }
+    if (!window.confirm(`Remove user "${username}"?`)) return;
+    const updated = getUsers().filter(u => u.username !== username);
+    saveUsers(updated);
+    setUsers(updated);
+    setSuccess("User removed.");
+    setTimeout(() => setSuccess(""), 3000);
+  };
+
+  const savePassword = (username) => {
+    if (editPass.length < 6) { setError("Password must be at least 6 characters."); return; }
+    const updated = getUsers().map(u => u.username === username ? { ...u, password: editPass } : u);
+    saveUsers(updated);
+    setUsers(updated);
+    setEditingId(null);
+    setEditPass("");
+    setSuccess("Password updated.");
+    setTimeout(() => setSuccess(""), 3000);
+  };
+
+  return (
+    <div className="fi" style={{paddingBottom: 24}}>
+      <div className="sec">
+        {error   && <div style={{fontSize:11,color:T.rose,fontFamily:"JetBrains Mono,monospace",marginBottom:10,padding:"8px 12px",background:"rgba(251,113,133,0.08)",borderRadius:7}}>⚠ {error}</div>}
+        {success && <div style={{fontSize:11,color:T.green,fontFamily:"JetBrains Mono,monospace",marginBottom:10,padding:"8px 12px",background:"rgba(74,222,128,0.08)",borderRadius:7}}>✓ {success}</div>}
+
+        {/* Current users */}
+        <div className="sec-t">Current Users</div>
+        {users.map(u => (
+          <div key={u.username}>
+            <div className="card" style={{marginBottom:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{
+                  width:38,height:38,borderRadius:"50%",
+                  background:u.isAdmin ? T.amberGlow : T.iceDim,
+                  border:`1px solid ${u.isAdmin ? T.amberDim : T.border2}`,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:16,flexShrink:0,
+                }}>
+                  {u.isAdmin ? "👑" : "👤"}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <div style={{fontSize:14,fontWeight:600,color:T.text}}>{u.username}</div>
+                    <span className={`bdg ${u.isAdmin ? "bdg-high" : "bdg-normal"}`}>
+                      {u.isAdmin ? "Admin" : "User"}
+                    </span>
+                  </div>
+                  <div style={{fontSize:10,color:T.text3,fontFamily:"JetBrains Mono,monospace",marginTop:2}}>
+                    Added {u.createdAt}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button
+                    onClick={() => { setEditingId(editingId === u.username ? null : u.username); setEditPass(""); setError(""); }}
+                    style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border2}`,background:"transparent",color:T.text3,fontSize:10,fontFamily:"Inter,sans-serif",fontWeight:600,cursor:"pointer",transition:"all 0.15s"}}
+                    onMouseOver={e=>e.target.style.color=T.amber}
+                    onMouseOut={e=>e.target.style.color=T.text3}
+                  >
+                    {editingId === u.username ? "Cancel" : "Edit"}
+                  </button>
+                  {!u.isAdmin && (
+                    <button
+                      onClick={() => removeUser(u.username)}
+                      style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border2}`,background:"transparent",color:T.text3,fontSize:10,fontFamily:"Inter,sans-serif",fontWeight:600,cursor:"pointer",transition:"all 0.15s"}}
+                      onMouseOver={e=>e.target.style.color=T.rose}
+                      onMouseOut={e=>e.target.style.color=T.text3}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Edit password inline */}
+              {editingId === u.username && (
+                <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:9,color:T.text3,fontFamily:"JetBrains Mono,monospace",textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:6,fontWeight:600}}>New Password</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <input
+                      type={showNewPass ? "text" : "password"}
+                      placeholder="Min 6 characters"
+                      value={editPass}
+                      onChange={e => setEditPass(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && savePassword(u.username)}
+                      style={{flex:1,background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,padding:"8px 10px",color:T.text,fontFamily:"Inter,sans-serif",fontSize:12,outline:"none"}}
+                    />
+                    <button onClick={() => setShowNewPass(p=>!p)}
+                      style={{padding:"8px 10px",borderRadius:7,border:`1px solid ${T.border2}`,background:"transparent",color:T.text3,fontSize:13,cursor:"pointer"}}>
+                      {showNewPass ? "🙈" : "👁"}
+                    </button>
+                    <button onClick={() => savePassword(u.username)}
+                      style={{padding:"8px 14px",background:T.amber,border:"none",borderRadius:7,color:"#000",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                      Save
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* Add new user */}
+        <div className="sec-t" style={{marginTop:20}}>Add New User</div>
+        <div className="card">
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:9,color:T.text3,fontFamily:"JetBrains Mono,monospace",textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:5,fontWeight:600}}>Username</div>
+            <input
+              className="addinput"
+              placeholder="Enter username"
+              value={newUser.username}
+              onChange={e => setNewUser(p => ({...p, username: e.target.value}))}
+            />
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:9,color:T.text3,fontFamily:"JetBrains Mono,monospace",textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:5,fontWeight:600}}>Password</div>
+            <input
+              className="addinput"
+              type="password"
+              placeholder="Min 6 characters"
+              value={newUser.password}
+              onChange={e => setNewUser(p => ({...p, password: e.target.value}))}
+              onKeyDown={e => e.key === "Enter" && addUser()}
+            />
+          </div>
+          <button className="addbtn" style={{width:"100%",padding:11,fontSize:13,borderRadius:8}} onClick={addUser}>
+            + Add User
+          </button>
+        </div>
+
+        <div style={{fontSize:10,color:T.border2,fontFamily:"JetBrains Mono,monospace",textAlign:"center",marginTop:12}}>
+          Admin access only · Users stored locally
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function App(){
+  const currentUser = useContext(CurrentUserContext) || sessionStorage.getItem(AUTH_KEY) || "";
+  const isAdmin = currentUser.toLowerCase() === ADMIN_USER.toLowerCase();
   const [tab,setTab]=useState("today");
   const [followUps,setFollowUps]=useState(FOLLOW_UPS_INIT);
   const [tasks,setTasks]=useState(TASKS_INIT);
@@ -1780,9 +2263,11 @@ export default function App(){
     {id:"cal",  icon:"📆",l:"Calendar"},
     {id:"goat", icon:"💼",l:"Goat Funded"},
     {id:"me",   icon:"⚡",l:"Me"},
+    ...(isAdmin ? [{id:"users",icon:"👑",l:"Users"}] : []),
   ];
 
   return(
+    <AuthGate>
     <>
       <style>{css}</style>
       <div className="app">
@@ -1851,6 +2336,7 @@ export default function App(){
         {tab==="cal"  &&<CalendarTab/>}
         {tab==="goat" &&<GoatTab/>}
         {tab==="me"   &&<MeTab/>}
+        {tab==="users" && isAdmin && <UsersTab/>}
       </div>
 
       {/* Pomodoro floating button */}
@@ -1866,5 +2352,6 @@ export default function App(){
         ))}
       </div>
     </>
+     </AuthGate>
   );
 }
