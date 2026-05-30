@@ -687,7 +687,9 @@ function formatPhoneLink(phone) {
 }
 
 function mapCUTasksToFollowUps(tasks) {
-  return tasks.map(t => ({
+  return tasks.map(t => {
+    console.log("FU task:", t.name, "| phone extracted:", t.phone);
+    return {
     id: t.id,
     client: t.name,
     phone: t.phone,
@@ -696,7 +698,8 @@ function mapCUTasksToFollowUps(tasks) {
     due: t.due,
     done: t.done,
     list: "Follow-ups",
-  }));
+    };
+  });
 }
 
 function mapCUTasksToTasks(tasks, space) {
