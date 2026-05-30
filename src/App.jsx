@@ -669,18 +669,18 @@ async function updateTaskStatus(taskId, status) {
 
 function extractPhone(text) {
   if (!text) return "";
-  // Match +356 XXXXXXXX or local 7/8/9XXXXXXX formats
-  const match = text.match(/([+]356[\s\d]{7,12}|[789]\d{3}[\s]?\d{4}|\d{7,15})/);
+  // Match +356 followed by digits/spaces, or local numbers like 7942 9239 or 99409756
+  const match = text.match(/([+]356[ ]?[0-9 ]{7,12}|[789][0-9]{3}[ ][0-9]{4}|[789][0-9]{7}|[0-9]{8})/u);
   if (!match) return "";
-  // Clean up spaces for tel: link
   return match[0].trim();
 }
 
 function formatPhoneLink(phone) {
   if (!phone) return "";
-  let clean = phone.replace(/ /g, "");
-  // Add +356 if it's a local Maltese number without country code
-  if (clean.match(/^[789]\d{7}$/) && !clean.startsWith("+")) {
+  // Remove all spaces and non-digit chars except leading +
+  let clean = phone.split("").filter(c => c >= "0" && c <= "9" || c === "+").join("");
+  // Add +356 if local Maltese number (starts with 7/8/9 and is 8 digits)
+  if (/^[789][0-9]{7}$/.test(clean)) {
     clean = "+356" + clean;
   }
   return clean;
