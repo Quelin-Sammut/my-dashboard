@@ -669,28 +669,47 @@ async function updateTaskStatus(taskId, status) {
 
 function extractPhone(text) {
   if (!text) return "";
-  // Remove ALL non-printable and invisible characters
-  let cleaned = "";
-  for (let ci = 0; ci < text.length; ci++) {
-    const code = text.charCodeAt(ci);
-    if (code > 31 && code < 127 || code === 32) cleaned += text[ci];
+  // Build array of "tokens" - consecutive digit sequences
+  var tokens = [];
+  var current = "";
+  for (var i = 0; i < text.length; i++) {
+    var c = text[i];
+    var code = text.charCodeAt(i);
+    var isDigit = code >= 48 && code <= 57;
+    var isPlus = c === "+";
+    if (isDigit) {
+      current += c;
+    } else if (isPlus && current === "") {
+      current += c;
+    } else {
+      if (current.length > 0) {
+        tokens.push({val: current, pos: i - current.length});
+        current = "";
+      }
+    }
   }
-  text = cleaned;
-  const words = text.split(" ").filter(function(w) { return w.length > 0; });
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    const next = i + 1 < words.length ? words[i + 1] : "";
-    // Build digit-only versions
-    let wd = ""; for (let j=0;j<w.length;j++) { if(w[j]>="0"&&w[j]<="9") wd+=w[j]; }
-    let nd = ""; for (let j=0;j<next.length;j++) { if(next[j]>="0"&&next[j]<="9") nd+=next[j]; }
-    // +356 joined with 8 digits
-    if (wd.length === 11 && wd.startsWith("356")) { return "+356" + wd.slice(3); }
-    // +356 split: next word is 8 digits
-    if (wd === "356" && nd.length === 8) { return "+356 " + next; }
-    // Two 4-digit words in a row = phone number
-    if (wd.length === 4 && wd === w && nd.length === 4 && nd === next) { return w + " " + next; }
-    // Single 8-digit word
-    if (wd.length === 8 && wd === w) { return w; }
+  if (current.length > 0) tokens.push({val: current, pos: text.length - current.length});
+
+  // Now find phone patterns in tokens
+  for (var j = 0; j < tokens.length; j++) {
+    var t = tokens[j];
+    var d = t.val.replace("+", "");
+    // +356 + 8 digits joined = 11 digits starting with 356
+    if (d.length === 11 && d.indexOf("356") === 0) {
+      return "+" + d;
+    }
+    // 356 alone + next token of 8 digits
+    if (d === "356" && j + 1 < tokens.length && tokens[j+1].val.length === 8) {
+      return "+356 " + tokens[j+1].val;
+    }
+    // Two consecutive 4-digit tokens = phone number
+    if (d.length === 4 && j + 1 < tokens.length && tokens[j+1].val.length === 4) {
+      return d + " " + tokens[j+1].val;
+    }
+    // Single 8-digit token
+    if (d.length === 8) {
+      return d;
+    }
   }
   return "";
 }
